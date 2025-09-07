@@ -1,0 +1,27 @@
+# Threading configuration
+threads:
+  registration: 3  # Number of threads for registration process
+  farming: 20       # Number of threads for farming process
+
+# Sixpence-specific settings
+sixpence_ref_code: "OS037K"
+use_static_ref_code: false  # true = use static code above, false = use random from database
+
+delay_before_start:
+  min: 1
+  max: 1
+
+# Retry settings
+retry:
+  max_attempts: 3
+  delay_seconds: 5
+  backoff_multiplier: 2
+  rate_limit_delay: 60  # Special delay for 429 errors (in seconds)
+  
+  # Farming persistence settings
+  farming_wait_seconds: 6   # Wait time before retrying (in seconds)
+  proxy_rotation: true      # Enable proxy rotation on exhausted retries
+
+# Logging settings
+logging:
+  level: "INFO"  # Available levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
