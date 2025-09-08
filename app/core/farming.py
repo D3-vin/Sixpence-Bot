@@ -103,8 +103,8 @@ class FarmingProcess:
             for remaining in range(delay_seconds, 0, -1):
                 if not self.running or not should_continue():
                     return False
-                if remaining > 1:
-                    logger.debug(f"Retrying in {remaining} seconds...", self.api.eth_address)
+                #if remaining > 1:
+                    #logger.debug(f"Retrying in {remaining} seconds...", self.api.eth_address)
                 await asyncio.sleep(1)
             
             return True
@@ -116,8 +116,8 @@ class FarmingProcess:
         for remaining in range(farming_wait_seconds, 0, -1):
             if not self.running or not should_continue():
                 return False
-            if remaining > 1:
-                logger.debug(f"Next action in {remaining} seconds...", self.api.eth_address)
+            #if remaining > 1:
+                #logger.debug(f"Next action in {remaining} seconds...", self.api.eth_address)
             await asyncio.sleep(1)
         
         # Check proxy rotation setting

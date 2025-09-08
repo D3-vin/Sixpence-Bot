@@ -27,21 +27,51 @@ class RegistrationProcess:
         self.settings = get_settings()
         self.proxy_rotator = ProxyRotator(proxy)
         self.running = True
+        self.attempt_count = 0  # Track attempts with current proxy
     
     async def process(self) -> bool:
-        """Run registration process"""
+        """Run registration process with retry and proxy rotation"""
+        max_attempts = self.settings.retry_max_attempts
+        
+        while self.attempt_count < max_attempts:
+            try:
+                # Ensure database is initialized
+                await self.db.init()
+                
+                # Check if account already exists in database
+                existing_account = await self.db.get_account(self.private_key)
+                if existing_account and existing_account.get("auth_token"):
+                    logger.info("Account already registered, skipping", self.api.eth_address)
+                    return True
+                
+                logger.info(f"Starting registration (attempt {self.attempt_count + 1}/{max_attempts})", self.api.eth_address)
+                
+                # Try registration
+                if await self._attempt_registration():
+                    logger.success("Registration completed successfully", self.api.eth_address)
+                    return True
+                
+                # Registration failed, handle failure
+                if not await self._handle_registration_failure():
+                    return False
+                    
+            except Exception as e:
+                error_msg = str(e)
+                if "ctype 'void *'" in error_msg or "cdata pointer" in error_msg:
+                    logger.error(f"curl_cffi library error detected, skipping this account: {error_msg}", self.api.eth_address)
+                    return False  # Skip this account to prevent infinite loops
+                else:
+                    logger.error(f"Registration failed: {e}", self.api.eth_address)
+                
+                if not await self._handle_registration_failure():
+                    return False
+        
+        logger.error(f"Registration failed after {max_attempts} attempts", self.api.eth_address)
+        return False
+    
+    async def _attempt_registration(self) -> bool:
+        """Single registration attempt"""
         try:
-            # Ensure database is initialized
-            await self.db.init()
-            
-            # Check if account already exists in database
-            existing_account = await self.db.get_account(self.private_key)
-            if existing_account and existing_account.get("auth_token"):
-                logger.info("Account already registered, skipping", self.api.eth_address)
-                return True
-            
-            logger.info("Starting registration", self.api.eth_address)
-            
             # Get nonce and login
             login_result = await self.api.login()
             
@@ -112,14 +142,64 @@ class RegistrationProcess:
                 await self.db.save_websocket_auth_message(self.private_key, websocket_auth_message)
                 logger.debug("WebSocket auth message saved to database", self.api.eth_address)
             
-            logger.success("Registration completed", self.api.eth_address)
             return True
             
         except Exception as e:
-            logger.error(f"Registration failed: {e}", self.api.eth_address)
+            logger.error(f"Registration attempt failed: {e}", self.api.eth_address)
             return False
         finally:
             await self.api.close()
+    
+    async def _handle_registration_failure(self) -> bool:
+        """Handle registration failure with delay and proxy rotation"""
+        
+        self.attempt_count += 1
+        max_attempts = self.settings.retry_max_attempts
+        
+        # If we haven't exhausted attempts yet, use regular retry delay
+        if self.attempt_count < max_attempts:
+            delay_seconds = max(self.settings.retry_delay, 5)  # Minimum 5 seconds for registration
+            logger.warning(f"Registration failed (attempt {self.attempt_count}/{max_attempts}), waiting {delay_seconds} seconds...", self.api.eth_address)
+            
+            for remaining in range(delay_seconds, 0, -1):
+                if not self.running:
+                    return False
+                await asyncio.sleep(1)
+            
+            return True
+        
+        # We've exhausted all attempts with current proxy
+        if not self.settings.proxy_rotation_enabled:
+            logger.info(f"Max attempts ({max_attempts}) reached, but proxy rotation disabled. Stopping registration.", self.api.eth_address)
+            return False
+        
+        # Try to get next proxy
+        new_proxy = self.proxy_rotator.get_next_proxy(self.api.eth_address)
+        if new_proxy == self.proxy:
+            logger.warning("No alternative proxy available, stopping registration", self.api.eth_address)
+            return False
+        
+        # Update proxy and reset attempt count
+        self.proxy = new_proxy
+        self.attempt_count = 0
+        logger.info(f"Max attempts reached, switching to new proxy for registration", self.api.eth_address)
+        
+        # Create new API instance with new proxy
+        await self.api.close()
+        
+        # Wait 2 seconds to prevent cdata errors
+        await asyncio.sleep(2)
+        
+        try:
+            self.api = SixpenceAPI(self.private_key, self.proxy)
+            logger.debug("New API instance created successfully with new proxy", self.api.eth_address)
+        except Exception as e:
+            logger.error(f"Failed to create new API instance: {e}", self.api.eth_address)
+            # If we can't create new API instance, stop registration
+            return False
+        
+        return True
+
     
     async def _generate_websocket_auth_message(self) -> Optional[str]:
         """Generate WebSocket authentication message"""

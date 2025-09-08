@@ -129,6 +129,7 @@ class SixpenceWebSocket:
             
             if websocket_auth_message:
                 # Send the saved authentication message
+                #print(f'mess {websocket_auth_message}')
                 await self.websocket.send_str(websocket_auth_message)
                 logger.debug("WebSocket authentication sent from saved message", self.eth_address)
                 return True
@@ -212,6 +213,7 @@ class SixpenceWebSocket:
                 msg = await self.websocket.receive()
                 
                 if msg.type == WSMsgType.TEXT:
+                    #logger.info(f"Received WebSocket message: {msg.data}", self.eth_address)
                     data = json.loads(msg.data)
                     await self._handle_message(data)
                 elif msg.type == WSMsgType.ERROR:
