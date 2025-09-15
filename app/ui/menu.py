@@ -40,7 +40,7 @@ class SixpenceMenu:
         combined_text.append("\n📁 GitHub: ", style="bold white")
         combined_text.append("https://github.com/D3-vin", style="cyan")
         combined_text.append("\n📁 Version: ", style="bold white")
-        combined_text.append("1.0", style="green")
+        combined_text.append("1.1", style="green")
         combined_text.append("\n")
 
         info_panel = Panel(
