@@ -94,7 +94,7 @@ class SixpenceDatabase:
             self.initialized = False
             logger.debug("Database connection closed")
     
-    async def save_account(self, private_key: str, auth_token: Optional[str] = None, ref_code: Optional[str] = None, websocket_auth_message: Optional[str] = None) -> bool:
+    async def save_account(self, private_key: str, auth_token: Optional[str] = None, ref_code: Optional[str] = None, websocket_auth_message: Optional[str] = None, twitter_bound: Optional[bool] = None) -> bool:
         """Save account to database"""
         try:
             account, created = await Account.get_or_create(
@@ -110,6 +110,7 @@ class SixpenceDatabase:
                     account.ref_code = ref_code
                 if websocket_auth_message is not None:
                     account.websocket_auth_message = websocket_auth_message
+                # Twitter bound status is handled separately for now
                 await account.save()
             
             return True
@@ -227,6 +228,26 @@ class SixpenceDatabase:
         except Exception as e:
             logger.error(f"Failed to get accounts count: {e}")
             return 0
+    
+    async def get_all_accounts_with_tokens(self) -> List[Dict[str, Any]]:
+        """Get all accounts that have auth tokens"""
+        try:
+            accounts = await Account.filter(auth_token__isnull=False).all()
+            return [
+                {
+                    "id": account.id,
+                    "private_key": account.private_key,
+                    "auth_token": account.auth_token,
+                    "ref_code": account.ref_code,
+                    "websocket_auth_message": account.websocket_auth_message,
+                    "twitter_bound": False,  # Default to False for now, can be extended later
+                    "created_at": account.created_at
+                }
+                for account in accounts
+            ]
+        except Exception as e:
+            logger.error(f"Failed to get accounts with tokens: {e}")
+            return []
 
 
 # Global database instance

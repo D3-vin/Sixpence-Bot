@@ -58,13 +58,14 @@ class RegistrationProcess:
             except Exception as e:
                 error_msg = str(e)
                 if "ctype 'void *'" in error_msg or "cdata pointer" in error_msg:
-                    logger.error(f"curl_cffi library error detected, skipping this account: {error_msg}", self.api.eth_address)
-                    return False  # Skip this account to prevent infinite loops
+                    logger.error(f"curl_cffi library error detected: {error_msg}", self.api.eth_address)
+                    # Handle curl_cffi error with session reset and proxy rotation
+                    if not await self._handle_curl_cffi_error():
+                        return False
                 else:
                     logger.error(f"Registration failed: {e}", self.api.eth_address)
-                
-                if not await self._handle_registration_failure():
-                    return False
+                    if not await self._handle_registration_failure():
+                        return False
         
         logger.error(f"Registration failed after {max_attempts} attempts", self.api.eth_address)
         return False
@@ -150,6 +151,37 @@ class RegistrationProcess:
         finally:
             await self.api.close()
     
+    async def _handle_curl_cffi_error(self) -> bool:
+        """Handle curl_cffi library error with session reset and proxy rotation"""
+        logger.info("Handling curl_cffi error: waiting 1-2 seconds before session reset", self.api.eth_address)
+        
+        # Wait 1-2 seconds as requested
+        await asyncio.sleep(1.5)
+        
+        # Close current session
+        await self.api.close()
+        
+        # Try to get next proxy if proxy rotation is enabled
+        if self.settings.proxy_rotation_enabled:
+            new_proxy = self.proxy_rotator.get_next_proxy(self.api.eth_address)
+            if new_proxy != self.proxy:
+                self.proxy = new_proxy
+                logger.info("Switched to new proxy due to curl_cffi error", self.api.eth_address)
+            else:
+                logger.warning("No alternative proxy available for curl_cffi error recovery", self.api.eth_address)
+        
+        # Wait additional 1 second before creating new session
+        await asyncio.sleep(1)
+        
+        # Create new API session
+        try:
+            self.api = SixpenceAPI(self.private_key, self.proxy)
+            logger.debug("New API session created after curl_cffi error", self.api.eth_address)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to create new API session after curl_cffi error: {e}", self.api.eth_address)
+            return False
+
     async def _handle_registration_failure(self) -> bool:
         """Handle registration failure with delay and proxy rotation"""
         

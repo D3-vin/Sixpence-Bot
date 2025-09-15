@@ -76,3 +76,29 @@ def get_proxy_for_account(proxies: List[str], account_index: int) -> str:
         next(proxy_cycle)
     
     return next(proxy_cycle)
+
+
+def load_twitter_tokens() -> List[str]:
+    """Load Twitter auth tokens from twitter_token.txt"""
+    file_path = "config/data/twitter_token.txt"
+    
+    if not os.path.exists(file_path):
+        logger.warning(f"Twitter tokens file not found: {file_path}")
+        return []
+    
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        tokens = []
+        for line in lines:
+            line = line.strip()
+            if line and not line.startswith('#'):
+                tokens.append(line)
+        
+        logger.info(f"Loaded {len(tokens)} Twitter tokens")
+        return tokens
+        
+    except Exception as e:
+        logger.error(f"Error loading Twitter tokens: {e}")
+        return []

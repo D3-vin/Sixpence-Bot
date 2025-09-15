@@ -13,6 +13,7 @@ from app.utils.shutdown import should_continue
 from app.data.loader import load_accounts, load_proxies, get_proxy_for_account
 from app.core.registration import RegistrationProcess
 from app.core.farming import FarmingProcess
+from app.core.twitter_binding import TwitterBindingProcess
 from app.config.settings import get_settings
 
 logger = get_logger()
@@ -39,6 +40,8 @@ class SixpenceApp:
                 elif choice == 2:
                     await self._handle_farming()
                 elif choice == 3:
+                    await self._handle_twitter_binding()
+                elif choice == 4:
                     self.running = False
                     logger.info("Shutting down...")
                     break
@@ -102,6 +105,67 @@ class SixpenceApp:
         failed_count = sum(1 for r in results if r is False or isinstance(r, Exception))
         
         logger.info(f"Registration completed: {success_count} processed, {failed_count} failed")
+    
+    async def _handle_twitter_binding(self) -> None:
+        """Handle Twitter binding process"""
+        # Load Twitter accounts and tokens
+        accounts = load_accounts("twitter.txt")
+        if not accounts:
+            logger.error("No accounts found in twitter.txt")
+            return
+        
+        from app.data.loader import load_twitter_tokens
+        twitter_tokens = load_twitter_tokens()
+        if not twitter_tokens:
+            logger.error("No Twitter tokens found in twitter_token.txt")
+            return
+        
+        proxies = load_proxies()
+        
+        self.menu.show_operation_info("Twitter Binding", len(accounts))
+        
+        # Create semaphore for concurrent processing
+        semaphore = asyncio.Semaphore(self.settings.registration_threads)
+        
+        async def process_account(account: str, index: int) -> bool:
+            async with semaphore:
+                # Apply delay
+                delay = random.randint(self.settings.delay_min, self.settings.delay_max)
+                if delay > 0:
+                    # Check shutdown during delay
+                    for _ in range(delay):
+                        if not should_continue():
+                            return False
+                        await asyncio.sleep(1)
+                
+                proxy = get_proxy_for_account(proxies, index)
+                
+                # Pass all Twitter tokens to the process
+                # The process will handle cycling through them if needed
+                process = TwitterBindingProcess(
+                    account,
+                    twitter_tokens,  # Pass full list instead of single token
+                    proxy
+                )
+                return await process.process()
+        
+        # Process all accounts
+        tasks = [
+            process_account(account, i) 
+            for i, account in enumerate(accounts)
+        ]
+        
+        try:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+        except KeyboardInterrupt:
+            logger.info("Twitter binding interrupted")
+            return
+        
+        # Count results
+        success_count = sum(1 for r in results if r is True)
+        failed_count = sum(1 for r in results if r is False or isinstance(r, Exception))
+        
+        logger.info(f"Twitter binding completed: {success_count} bound, {failed_count} failed")
     
     async def _handle_farming(self) -> None:
         """Handle farming process"""

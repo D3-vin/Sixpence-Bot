@@ -13,7 +13,7 @@ delay_before_start:
 
 # Retry settings
 retry:
-  max_attempts: 3
+  max_attempts: 1
   delay_seconds: 5
   backoff_multiplier: 2
   rate_limit_delay: 60  # Special delay for 429 errors (in seconds)

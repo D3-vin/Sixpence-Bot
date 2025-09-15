@@ -77,9 +77,16 @@ class FarmingProcess:
                 logger.info("Farming interrupted by user", self.api.eth_address)
                 break
             except Exception as e:
-                logger.error(f"Farming session failed: {e}", self.api.eth_address)
-                if not await self._handle_farming_failure():
-                    break
+                error_msg = str(e)
+                if "ctype 'void *'" in error_msg or "cdata pointer" in error_msg:
+                    logger.error(f"curl_cffi library error detected: {error_msg}", self.api.eth_address)
+                    # Handle curl_cffi error with session reset and proxy rotation
+                    if not await self._handle_curl_cffi_error():
+                        break
+                else:
+                    logger.error(f"Farming session failed: {e}", self.api.eth_address)
+                    if not await self._handle_farming_failure():
+                        break
                     
             # Loop will exit naturally if should_continue() returns False
             pass
@@ -89,6 +96,39 @@ class FarmingProcess:
                 
         logger.info("Farming process terminated", self.api.eth_address)
     
+    async def _handle_curl_cffi_error(self) -> bool:
+        """Handle curl_cffi library error with session reset and proxy rotation"""
+        logger.info("Handling curl_cffi error in farming: waiting 1-2 seconds before session reset", self.api.eth_address)
+        
+        # Wait 1-2 seconds as requested
+        await asyncio.sleep(1.5)
+        
+        # Cleanup current session
+        await self._cleanup_session()
+        await self.api.close()
+        
+        # Try to get next proxy if proxy rotation is enabled
+        if self.settings.proxy_rotation_enabled:
+            new_proxy = self.proxy_rotator.get_next_proxy(self.api.eth_address)
+            if new_proxy != self.proxy:
+                self.proxy = new_proxy
+                logger.info("Switched to new proxy due to curl_cffi error", self.api.eth_address)
+                self.attempt_count = 0  # Reset attempts with new proxy
+            else:
+                logger.warning("No alternative proxy available for curl_cffi error recovery", self.api.eth_address)
+        
+        # Wait additional 1 second before creating new session
+        await asyncio.sleep(1)
+        
+        # Create new API session
+        try:
+            self.api = SixpenceAPI(self.private_key, self.proxy)
+            logger.debug("New API session created after curl_cffi error", self.api.eth_address)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to create new API session after curl_cffi error: {e}", self.api.eth_address)
+            return False
+
     async def _handle_farming_failure(self) -> bool:
         """Handle farming failure with delay and proxy rotation"""
         

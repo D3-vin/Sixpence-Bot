@@ -10,6 +10,7 @@
 
 - 🔐 **Automatic Registration** - bulk account registration with referral codes
 - 🌾 **Smart Farming** - automatic point collection through WebSocket connections
+- 🐦 **Twitter Binding** - automatic Twitter OAuth2 account binding
 - 🔄 **Proxy Rotation** - automatic proxy switching on connection errors
 - 📊 **Multi-threading** - separate thread settings for registration and farming
 - 💾 **Database** - automatic saving of tokens and referral codes
@@ -38,6 +39,8 @@ sixpence/
 │   └── data/            # Data files
 │       ├── reg.txt      # Keys for registration
 │       ├── farm.txt     # Keys for farming
+│       ├── twitter.txt  # Keys for Twitter binding
+│       ├── twitter_token.txt # Twitter auth tokens
 │       └── proxy.txt    # Proxy list
 │
 ├── data/                # 💾 Runtime data
@@ -59,6 +62,10 @@ pip install -r requirements.txt
 **Add private keys:**
 - `config/data/reg.txt` - private keys for registration (one per line)
 - `config/data/farm.txt` - private keys for farming (one per line)
+- `config/data/twitter.txt` - private keys for Twitter binding (one per line)
+
+**Add Twitter tokens (for Twitter binding):**
+- `config/data/twitter_token.txt` - Twitter auth tokens (one per line)
 
 **Add proxies (optional):**
 - `config/data/proxy.txt` - proxy list in format `http://user:pass@ip:port`
@@ -103,7 +110,8 @@ python main.py
 ### Operations Menu:
 1. **Registration** - Automatic account registration
 2. **Farming** - Start farming process
-3. **Exit** - Exit the program
+3. **Twitter Binding** - Bind Twitter accounts using OAuth2
+4. **Exit** - Exit the program
 
 ## 📊 System Features
 
@@ -126,6 +134,27 @@ python main.py
 - Automatic retrieval and saving of referral codes
 - Code reuse between accounts
 - Support for static and dynamic referral codes
+
+### 🐦 Twitter Integration
+- OAuth2-based Twitter account binding
+- Support for Jam_Twitter_API library
+- Automatic token management and retry logic
+- Proxy rotation support for Twitter operations
+
+## 📦 Twitter Integration Setup
+
+For Twitter binding functionality, install the optional Twitter API library:
+
+```bash
+pip install Jam_Twitter_API
+```
+
+**Setup Twitter tokens:**
+- Add Sixpence private keys to `config/data/twitter.txt` (one per line)
+- Add Twitter auth tokens to `config/data/twitter_token.txt` (one per line)
+- Use menu option "3. Twitter Binding" to bind accounts
+
+**Note:** Twitter integration is optional and the bot will work without it.
 
 ## 🔍 Monitoring and Logging
 

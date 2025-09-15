@@ -10,3 +10,4 @@ rich
 colorama
 pyyaml
 aiofiles
+Jam_Twitter_API

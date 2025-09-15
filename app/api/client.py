@@ -48,28 +48,32 @@ class SixpenceAPI:
         self.access_token: Optional[str] = None
         
     def _create_session(self) -> AsyncSession:
-        """Create HTTP session"""
-        session = AsyncSession(
-            impersonate="chrome136",
-            verify=False,
-            timeout=30
-        )
-        
-        session.headers.update({
-            "Accept": "application/json, text/plain, */*",
-            "Origin": "chrome-extension://bcakokeeafaehcajfkajcpbdkfnoahlh",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "none",
-            "Sec-Fetch-Storage-Access": "active",
-            "Accept-Language": "en-US,en;q=0.9",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
-        })
-        
-        if self.proxy:
-            session.proxies = {"http": self.proxy, "https": self.proxy}
-        
-        return session
+        """Create HTTP session with error protection"""
+        try:
+            session = AsyncSession(
+                impersonate="chrome136",
+                verify=False,
+                timeout=30
+            )
+            
+            session.headers.update({
+                "Accept": "application/json, text/plain, */*",
+                "Origin": "chrome-extension://bcakokeeafaehcajfkajcpbdkfnoahlh",
+                "Sec-Fetch-Dest": "empty",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-Storage-Access": "active",
+                "Accept-Language": "en-US,en;q=0.9",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+            })
+            
+            if self.proxy:
+                session.proxies = {"http": self.proxy, "https": self.proxy}
+            
+            return session
+        except Exception as e:
+            logger.error(f"Failed to create session: {e}", self.eth_address if hasattr(self, 'eth_address') else 'unknown')
+            raise
     
     def _get_eth_address(self) -> str:
         """Get Ethereum address from private key"""
@@ -89,6 +93,10 @@ class SixpenceAPI:
         auth_required: bool = True
     ) -> Optional[Union[Dict[str, Any], list, str]]:
         """Simple unified request method"""
+        # Ensure session exists
+        if not self.session:
+            self.session = self._create_session()
+        
         # Set headers
         headers = {"Content-Type": "application/json"}
         if auth_required and self.access_token:
@@ -227,10 +235,14 @@ class SixpenceAPI:
         return result if isinstance(result, dict) else None
     
     async def close(self) -> None:
-        """Close session"""
+        """Close session safely"""
         if self.session:
             try:
                 await self.session.close()
-            except AttributeError:
-                # Fallback for different curl_cffi versions
-                pass
+            except (AttributeError, Exception) as e:
+                # Fallback for different curl_cffi versions or other session errors
+                logger.debug(f"Session close error (safe to ignore): {e}", self.eth_address)
+            finally:
+                self.session = None
+                self.access_token = None
+                self.nonce = None

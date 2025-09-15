@@ -71,8 +71,9 @@ class SixpenceMenu:
         
         options = [
             "1 Registration",
-            "2 Farming", 
-            "3 Exit"
+            "2 Farming",
+            "3 Twitter Binding",
+            "4 Exit"
         ]
         
         for option in options:
@@ -91,16 +92,16 @@ class SixpenceMenu:
         # Get user input
         while True:
             try:
-                choice = input(f"\n{Fore.CYAN}Enter choice [1-3]: {Style.RESET_ALL}")
+                choice = input(f"\n{Fore.CYAN}Enter choice [1-4]: {Style.RESET_ALL}")
                 choice_int = int(choice)
-                if choice_int in [1, 2, 3]:
+                if choice_int in [1, 2, 3, 4]:
                     return choice_int
                 else:
-                    print(f"{Fore.RED}Invalid choice. Please enter 1, 2, or 3.{Style.RESET_ALL}")
+                    print(f"{Fore.RED}Invalid choice. Please enter 1, 2, 3, or 4.{Style.RESET_ALL}")
             except ValueError:
                 print(f"{Fore.RED}Invalid input. Please enter a number.{Style.RESET_ALL}")
             except KeyboardInterrupt:
-                return 3
+                return 4
     
     def show_operation_info(self, operation: str, count: int) -> None:
         """Show operation information"""
