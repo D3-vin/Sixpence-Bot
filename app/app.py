@@ -9,7 +9,6 @@ from typing import List
 
 from app.ui.menu import get_menu
 from app.utils.logging import get_logger
-from app.utils.shutdown import should_continue
 from app.data.loader import load_accounts, load_proxies, get_proxy_for_account
 from app.core.registration import RegistrationProcess
 from app.core.farming import FarmingProcess
@@ -28,9 +27,9 @@ class SixpenceApp:
         self.running = True
         self.farming_processes = []  # Track farming processes for cleanup
     
-    async def run(self, shutdown_event: asyncio.Event) -> None:
+    async def run(self) -> None:
         """Main execution loop"""
-        while self.running and should_continue():
+        while self.running:
             try:
                 self.menu.show_welcome()
                 choice = self.menu.show_menu()
@@ -46,7 +45,7 @@ class SixpenceApp:
                     logger.info("Shutting down...")
                     break
                 
-                if self.running and should_continue():
+                if self.running:
                     input("Press Enter to continue...")
                     
             except KeyboardInterrupt:
@@ -77,11 +76,7 @@ class SixpenceApp:
                 # Apply delay
                 delay = random.randint(self.settings.delay_min, self.settings.delay_max)
                 if delay > 0:
-                    # Check shutdown during delay
-                    for _ in range(delay):
-                        if not should_continue():
-                            return False
-                        await asyncio.sleep(1)
+                    await asyncio.sleep(delay)
                 
                 proxy = get_proxy_for_account(proxies, index)
                 
@@ -132,11 +127,7 @@ class SixpenceApp:
                 # Apply delay
                 delay = random.randint(self.settings.delay_min, self.settings.delay_max)
                 if delay > 0:
-                    # Check shutdown during delay
-                    for _ in range(delay):
-                        if not should_continue():
-                            return False
-                        await asyncio.sleep(1)
+                    await asyncio.sleep(delay)
                 
                 proxy = get_proxy_for_account(proxies, index)
                 
@@ -186,11 +177,7 @@ class SixpenceApp:
                 # Apply delay
                 delay = random.randint(self.settings.delay_min, self.settings.delay_max)
                 if delay > 0:
-                    # Check shutdown during delay
-                    for _ in range(delay):
-                        if not should_continue():
-                            return
-                        await asyncio.sleep(1)
+                    await asyncio.sleep(delay)
                 
                 proxy = get_proxy_for_account(proxies, index)
                 

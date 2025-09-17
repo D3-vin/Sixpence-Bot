@@ -15,7 +15,6 @@ from aiohttp_socks import ProxyConnector
 
 from app.utils.logging import get_logger
 from app.utils.retry import retry_async, _simplify_error_message
-from app.utils.shutdown import is_shutdown_requested
 from app.api.client import SixpenceAPI
 from app.data.database import get_db
 
@@ -171,9 +170,6 @@ class SixpenceWebSocket:
     async def send_heartbeat(self) -> None:
         """Send heartbeat messages with error handling"""
         while self.running and self.websocket:
-            # Check shutdown before sending heartbeat
-            if is_shutdown_requested():
-                break
             try:
                 if not self.wss_token:
                     logger.warning("No WebSocket token for heartbeat", self.eth_address)
@@ -206,9 +202,6 @@ class SixpenceWebSocket:
     async def listen_messages(self) -> None:
         """Listen for incoming messages with connection error handling"""
         while self.running and self.websocket:
-            # Check shutdown before listening
-            if is_shutdown_requested():
-                break
             try:
                 msg = await self.websocket.receive()
                 

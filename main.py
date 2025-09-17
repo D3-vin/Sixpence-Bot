@@ -7,6 +7,7 @@ Optimized and refactored version
 import asyncio
 import sys
 import signal
+import os
 from pathlib import Path
 
 # Add app directory to path
@@ -14,29 +15,29 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from app.app import SixpenceApp
 from app.utils.logging import get_logger
-from app.data.database import init_database, close_database
-from app.utils.shutdown import get_shutdown_manager
-
-# Global flag for shutdown
-shutdown_event = asyncio.Event()
-shutdown_initiated = False
+from app.data.database import init_database
 
 
 def handle_interrupt(signum, frame):
-    """Handle interrupt signals"""
-    global shutdown_initiated
-    if not shutdown_initiated:
-        logger = get_logger()
-        logger.info("Received interrupt signal. Shutting down...")
-        shutdown_event.set()  # Set the shutdown event instead of sys.exit
-        shutdown_initiated = True
-    # Ignore subsequent signals
+    """Handle interrupt signals - immediate exit"""
+    logger = get_logger()
+    logger.info("Received interrupt signal. Exiting immediately...")
+    
+    # Force immediate exit
+    try:
+        # Cancel all running tasks
+        for task in asyncio.all_tasks():
+            task.cancel()
+    except:
+        pass
+    
+    # Force exit with os._exit (bypasses cleanup)
+    os._exit(0)
 
 
 async def main():
     """Main entry point"""
     logger = get_logger()
-    manager = None
     
     try:
         logger.info("Starting Sixpence Bot...")
@@ -44,38 +45,19 @@ async def main():
         # Initialize database
         await init_database()
         
-        # Initialize shutdown manager
-        get_shutdown_manager().initialize(shutdown_event)
-        
         manager = SixpenceApp()
-        
-        # Pass shutdown event to manager
-        await manager.run(shutdown_event)
+        await manager.run()
         
     except KeyboardInterrupt:
         logger.info("Application interrupted by user")
+        sys.exit(0)
     except Exception as e:
         logger.error(f"Application error: {e}")
-    finally:
-        if manager:
-            await manager.stop()
-        
-        # Close database
-        await close_database()
-        
-        # Cancel all remaining tasks
-        tasks = [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
-        if tasks:
-            logger.info(f"Cancelling {len(tasks)} remaining tasks")
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-        
-        logger.info("Application shutdown complete")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    # Setup signal handlers
+    # Setup signal handlers for immediate exit
     signal.signal(signal.SIGINT, handle_interrupt)
     signal.signal(signal.SIGTERM, handle_interrupt)
     
@@ -86,7 +68,8 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        pass
+        print("\nExiting...")
+        sys.exit(0)
     except Exception as e:
         print(f"Fatal error: {e}")
         sys.exit(1)
