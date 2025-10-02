@@ -11,7 +11,6 @@ from app.api.websocket import SixpenceWebSocket
 from app.data.database import get_db
 from app.utils.logging import get_logger
 from app.utils.proxy_rotation import ProxyRotator
-from app.utils.shutdown import should_continue
 from app.config.settings import get_settings
 
 logger = get_logger()
@@ -33,7 +32,7 @@ class FarmingProcess:
     
     async def process(self) -> None:
         """Run persistent farming process with proxy rotation"""
-        while self.running and should_continue():
+        while self.running:
             try:
                 logger.debug("Starting farming session", self.api.eth_address)
                 
@@ -95,7 +94,7 @@ class FarmingProcess:
                     if not await self._handle_farming_failure():
                         break
                     
-            # Loop will exit naturally if should_continue() returns False
+            # Loop will exit naturally when self.running becomes False
             pass
                 
         # Cleanup after the main loop
@@ -148,7 +147,7 @@ class FarmingProcess:
             logger.warning(f"WebSocket failed (attempt {self.attempt_count}/{max_attempts}), waiting {delay_seconds} seconds...", self.api.eth_address)
             
             for remaining in range(delay_seconds, 0, -1):
-                if not self.running or not should_continue():
+                if not self.running:
                     return False
                 #if remaining > 1:
                     #logger.debug(f"Retrying in {remaining} seconds...", self.api.eth_address)
@@ -161,7 +160,7 @@ class FarmingProcess:
         logger.info(f"All {max_attempts} attempts failed, waiting {farming_wait_seconds} seconds before next action...", self.api.eth_address)
         
         for remaining in range(farming_wait_seconds, 0, -1):
-            if not self.running or not should_continue():
+            if not self.running:
                 return False
             #if remaining > 1:
                 #logger.debug(f"Next action in {remaining} seconds...", self.api.eth_address)
