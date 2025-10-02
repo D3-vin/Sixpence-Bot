@@ -65,13 +65,20 @@ class FarmingProcess:
                 
                 # Start farming session (this will run until connection is lost)
                 try:
-                    await self.websocket.start_farming_session()
-                    # If we reach here, farming was successful
-                    self.attempt_count = 0  # Reset on success
+                    session_ok = await self.websocket.start_farming_session()
                 except Exception as e:
                     logger.error(f"Farming session error: {e}", self.api.eth_address)
                     if not await self._handle_farming_failure():
                         break
+                    continue
+
+                if session_ok:
+                    self.attempt_count = 0  # Reset on success
+                    continue
+
+                logger.warning("WebSocket session ended unexpectedly, scheduling reconnect", self.api.eth_address)
+                if not await self._handle_farming_failure():
+                    break
                     
             except KeyboardInterrupt:
                 logger.info("Farming interrupted by user", self.api.eth_address)

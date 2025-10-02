@@ -7,6 +7,7 @@ import asyncio
 import base64
 import json
 import secrets
+import time
 from typing import Dict, Any, Optional
 
 import aiohttp
@@ -26,6 +27,9 @@ class SixpenceWebSocket:
     """WebSocket client for Sixpence farming"""
     
     WSS_URL = "wss://ws.sixpence.ai/"
+    HEARTBEAT_INTERVAL = 30
+    RECEIVE_TIMEOUT = 45
+    AUTH_RESPONSE_WAIT = 2
     
     def __init__(self, private_key: str, auth_token: str, proxy: Optional[str] = None):
         self.private_key = private_key
@@ -36,6 +40,7 @@ class SixpenceWebSocket:
         self.session = None
         self.wss_token = None  # WebSocket-specific token
         self.db = get_db()
+        self._session_error = False
         
         # Get eth address for logging
         temp_api = SixpenceAPI(private_key)
@@ -168,67 +173,30 @@ class SixpenceWebSocket:
             logger.error(f"WebSocket authentication failed: {simplified_error}", self.eth_address)
             raise  # Re-raise to trigger retry
     
-    async def send_heartbeat(self) -> None:
-        """Send heartbeat messages with error handling"""
-        while self.running and self.websocket:
-            # Check shutdown before sending heartbeat
-            if is_shutdown_requested():
-                break
-            try:
-                if not self.wss_token:
-                    logger.warning("No WebSocket token for heartbeat", self.eth_address)
-                    break
-                    
-                # Import here to avoid circular imports
-                from app.api.client import SixpenceAPI
-                
-                # Create temporary API instance to get eth address
-                api = SixpenceAPI(self.private_key)
-                
-                heartbeat = {
-                    "type": "extension_heartbeat",
-                    "token": self.wss_token,
-                    "address": api.eth_address,
-                    "taskEnable": False
-                }
-                await self.websocket.send_str(json.dumps(heartbeat))
-                logger.debug("Heartbeat sent", self.eth_address)
-                await api.close()  # Clean up
-                await asyncio.sleep(30)  # Send every 30 seconds
-            except (aiohttp.ClientConnectionError, ConnectionResetError) as e:
-                simplified_error = _simplify_error_message(e)
-                logger.error(f"Heartbeat connection error: {simplified_error}", self.eth_address)
-                break  # This will trigger reconnection in start_farming
-            except Exception as e:
-                logger.error(f"Heartbeat failed: {e}", self.eth_address)
-                break
-    
-    async def listen_messages(self) -> None:
-        """Listen for incoming messages with connection error handling"""
-        while self.running and self.websocket:
-            # Check shutdown before listening
-            if is_shutdown_requested():
-                break
-            try:
-                msg = await self.websocket.receive()
-                
-                if msg.type == WSMsgType.TEXT:
-                    #logger.info(f"Received WebSocket message: {msg.data}", self.eth_address)
-                    data = json.loads(msg.data)
-                    await self._handle_message(data)
-                elif msg.type == WSMsgType.ERROR:
-                    logger.error(f"WebSocket error: {self.websocket.exception()}", self.eth_address)
-                    break
-                elif msg.type == WSMsgType.CLOSE:
-                    logger.warning("WebSocket connection closed by server", self.eth_address)
-                    break
-            except (aiohttp.ClientConnectionError, ConnectionResetError) as e:
-                simplified_error = _simplify_error_message(e)
-                logger.error(f"Connection error while listening: {simplified_error}", self.eth_address)
-                break  # This will trigger reconnection in start_farming
-            except Exception as e:
-                logger.error(f"Message handling error: {e}", self.eth_address)
-                break
+    async def _send_heartbeat(self) -> bool:
+        """Send single heartbeat message"""
+        if not self.websocket:
+            return False
+        if not self.wss_token:
+            logger.warning("No WebSocket token for heartbeat", self.eth_address)
+            return False
+        try:
+            heartbeat = {
+                "type": "extension_heartbeat",
+                "token": self.wss_token,
+                "address": self.eth_address,
+                "taskEnable": False
+            }
+            await self.websocket.send_str(json.dumps(heartbeat))
+            logger.debug("Heartbeat sent", self.eth_address)
+            return True
+        except (aiohttp.ClientConnectionError, ConnectionResetError) as e:
+            simplified_error = _simplify_error_message(e)
+            logger.error(f"Heartbeat connection error: {simplified_error}", self.eth_address)
+            return False
+        except Exception as e:
+            logger.error(f"Heartbeat failed: {e}", self.eth_address)
+            return False
     
     async def _handle_message(self, data: Dict[str, Any]) -> None:
         """Handle incoming WebSocket message"""
@@ -252,45 +220,91 @@ class SixpenceWebSocket:
         else:
             logger.debug(f"Unknown message type: {msg_type}", self.eth_address)
     
-    async def start_farming_session(self) -> None:
-        """Start farming session (connection and auth should be done already)"""
+    async def start_farming_session(self) -> bool:
+        """Start farming session (connection and auth should be done already)
+
+        Returns True if session ended normally, False if connection was lost.
+        """
         self.running = True
+        self._session_error = False
         logger.debug("Starting farming session...", self.eth_address)
-        
-        # Start message listening first
-        listen_task = asyncio.create_task(self.listen_messages())
-        heartbeat_task = None
-        
+
+        last_heartbeat = time.monotonic()
+
         try:
-            # Wait for authentication response to get wss_token
-            await asyncio.sleep(2)  # Give time for auth response
-            
+            # Give the server a moment to respond with auth data
+            await asyncio.sleep(self.AUTH_RESPONSE_WAIT)
+
             if self.wss_token:
-                # Start heartbeat after successful authentication
-                heartbeat_task = asyncio.create_task(self.send_heartbeat())
-                
-                # Run both tasks until completion or connection loss
-                done, pending = await asyncio.wait(
-                    [heartbeat_task, listen_task],
-                    return_when=asyncio.FIRST_COMPLETED
-                )
-                
-                # Cancel pending tasks
-                for task in pending:
-                    task.cancel()
-            else:
-                # Only listen if no wss_token
-                await listen_task
-                
+                if not await self._send_heartbeat():
+                    self._session_error = True
+                    return False
+                last_heartbeat = time.monotonic()
+
+            while self.running and self.websocket:
+                if is_shutdown_requested():
+                    break
+
+                try:
+                    msg = await asyncio.wait_for(
+                        self.websocket.receive(),
+                        timeout=self.RECEIVE_TIMEOUT
+                    )
+                except asyncio.TimeoutError:
+                    if not self.wss_token:
+                        logger.debug("Waiting for WebSocket auth response", self.eth_address)
+                        continue
+                    if not await self._send_heartbeat():
+                        self._session_error = True
+                        break
+                    last_heartbeat = time.monotonic()
+                    continue
+                except (aiohttp.ClientConnectionError, ConnectionResetError) as e:
+                    simplified_error = _simplify_error_message(e)
+                    logger.error(f"Connection error while receiving: {simplified_error}", self.eth_address)
+                    self._session_error = True
+                    break
+                except Exception as e:
+                    logger.error(f"Message receive error: {e}", self.eth_address)
+                    self._session_error = True
+                    break
+
+                msg_type = None
+                if msg.type == WSMsgType.TEXT:
+                    data = json.loads(msg.data)
+                    msg_type = data.get("type")
+                    await self._handle_message(data)
+                elif msg.type == WSMsgType.BINARY:
+                    logger.debug("Binary WebSocket message received", self.eth_address)
+                elif msg.type in (WSMsgType.CLOSE, WSMsgType.CLOSED):
+                    logger.warning("WebSocket connection closed by server", self.eth_address)
+                    self._session_error = True
+                    break
+                elif msg.type == WSMsgType.ERROR:
+                    logger.error(f"WebSocket error: {self.websocket.exception()}", self.eth_address)
+                    self._session_error = True
+                    break
+
+                if msg_type == "extension_auth" and self.wss_token:
+                    last_heartbeat = time.monotonic()
+
+                if self.wss_token and (time.monotonic() - last_heartbeat) >= self.HEARTBEAT_INTERVAL:
+                    if not await self._send_heartbeat():
+                        self._session_error = True
+                        break
+                    last_heartbeat = time.monotonic()
+
         except asyncio.CancelledError:
             logger.info("Farming session cancelled", self.eth_address)
         except Exception as e:
             logger.error(f"Farming session error: {e}", self.eth_address)
+            self._session_error = True
             raise  # Re-raise to let farming process handle it
         finally:
             self.running = False
-            if heartbeat_task and not heartbeat_task.done():
-                heartbeat_task.cancel()
+            await self.disconnect()
+
+        return not self._session_error
     
     async def start_farming(self) -> None:
         """Start farming process with retry logic"""
@@ -298,77 +312,18 @@ class SixpenceWebSocket:
         if not await self.connect():
             logger.error("Failed to establish WebSocket connection after retries", self.eth_address)
             return
-        
+
         # Authentication with retry
         if not await self.authenticate():
             logger.error("Failed to authenticate WebSocket after retries", self.eth_address)
             await self.disconnect()
             return
-        
-        self.running = True
-        logger.debug("Starting farming...", self.eth_address)
-        
-        # Start message listening first
-        listen_task = asyncio.create_task(self.listen_messages())
-        heartbeat_task = None
-        
+
         try:
-            # Wait for authentication response to get wss_token
-            await asyncio.sleep(2)  # Give time for auth response
-            
-            if self.wss_token:
-                # Start heartbeat after successful authentication
-                heartbeat_task = asyncio.create_task(self.send_heartbeat())
-                
-                # Run both tasks, but handle reconnection if needed
-                while self.running:
-                    # Check shutdown in main loop
-                    if is_shutdown_requested():
-                        break
-                    try:
-                        done, pending = await asyncio.wait(
-                            [heartbeat_task, listen_task],
-                            return_when=asyncio.FIRST_COMPLETED
-                        )
-                        
-                        # If either task completes, check if we need to reconnect
-                        if not self.running:
-                            break
-                            
-                        # Cancel pending tasks
-                        for task in pending:
-                            task.cancel()
-                            
-                        # Try to reconnect if connection was lost
-                        logger.warning("Connection lost, attempting to reconnect...", self.eth_address)
-                        await self.disconnect()
-                        
-                        # Reconnect with retry
-                        if await self.connect() and await self.authenticate():
-                            logger.success("Reconnected successfully", self.eth_address)
-                            # Restart tasks
-                            listen_task = asyncio.create_task(self.listen_messages())
-                            await asyncio.sleep(2)  # Wait for auth response
-                            if self.wss_token:
-                                heartbeat_task = asyncio.create_task(self.send_heartbeat())
-                        else:
-                            logger.error("Failed to reconnect, stopping farming", self.eth_address)
-                            break
-                            
-                    except Exception as e:
-                        logger.error(f"Error during farming: {e}", self.eth_address)
-                        break
-            else:
-                # Only listen if authentication failed
-                await listen_task
-                
-        except asyncio.CancelledError:
-            logger.info("Farming cancelled", self.eth_address)
+            await self.start_farming_session()
         finally:
-            self.running = False
-            if heartbeat_task and not heartbeat_task.done():
-                heartbeat_task.cancel()
-            await self.disconnect()
+            if self.running:
+                self.running = False
     
     async def disconnect(self) -> None:
         """Disconnect WebSocket"""
@@ -385,4 +340,5 @@ class SixpenceWebSocket:
                 self.session = None
         except Exception:
             pass  # Ignore errors during shutdown
+        self.wss_token = None
         logger.info("WebSocket disconnected", self.eth_address)
