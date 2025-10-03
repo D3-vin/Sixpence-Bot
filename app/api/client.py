@@ -36,8 +36,7 @@ class ServerTimeout(Exception):
 
 class SixpenceAPI:
     """Sixpence API client for all HTTP requests"""
-    
-    API_URL = "https://us-central1-openoracle-de73b.cloudfunctions.net/new_backend_apis/api/service"
+    API_URL = "https://backend.sixpence.ai/api/service/"
     
     def __init__(self, private_key: str, proxy: Optional[str] = None):
         self.private_key = private_key
@@ -178,7 +177,7 @@ class SixpenceAPI:
     
     async def get_nonce(self) -> bool:
         """Get nonce for authentication"""
-        result = await self._make_request(f"/{self.eth_address}/nonce?", auth_required=False)
+        result = await self._make_request(f"/{self.eth_address}/nonce??", auth_required=False)
         if isinstance(result, dict) and result.get("success"):
             data = result.get("data", {})
             self.nonce = data.get("nonce")
