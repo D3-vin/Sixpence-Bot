@@ -178,7 +178,7 @@ class SixpenceAPI:
     
     async def get_nonce(self) -> bool:
         """Get nonce for authentication"""
-        result = await self._make_request(f"/{self.eth_address}/nonce??", auth_required=False)
+        result = await self._make_request(f"/{self.eth_address}/nonce?", auth_required=False)
         if isinstance(result, dict) and result.get("success"):
             data = result.get("data", {})
             self.nonce = data.get("nonce")
