@@ -19,24 +19,25 @@ from app.data.database import init_database, close_database
 from app.utils.shutdown import get_shutdown_manager
 
 shutdown_event: Optional[asyncio.Event] = None
+_interrupt_handled = False
 
 
 def handle_interrupt(signum, frame):
     """Handle interrupt signals - immediate exit"""
+    global _interrupt_handled
     logger = get_logger()
-    logger.info("Interrupt received. Initiating shutdown...")
 
-    if shutdown_event is not None:
-        shutdown_event.set()
+    if not _interrupt_handled:
+        _interrupt_handled = True
+        logger.info("Interrupt received. Initiating shutdown...")
 
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
+        if shutdown_event is not None:
+            shutdown_event.set()
 
-    if loop:
-        for task in asyncio.all_tasks(loop):
-            task.cancel()
+        raise KeyboardInterrupt
+
+    logger.warning("Second interrupt received. Forcing exit.")
+    raise SystemExit(1)
 
 
 async def main():
